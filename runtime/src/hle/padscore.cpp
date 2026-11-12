@@ -37,8 +37,27 @@ HLE(padscore, KPADEnableDPD) {}
 HLE(padscore, KPADDisableDPD) {}
 HLE(padscore, KPADEnableMpls) {}
 HLE(padscore, KPADDisableMpls) {}
-// -> the previous callback; connections are never reported (the Pro Controller is there or not)
-HLE(padscore, KPADSetConnectCallback) { ret(c, 0); }
+// -> the previous callback. The game's Controller Selection waits for this callback (it neither probes nor
+// reads until a connection is reported), so pad_connect_poll (called from VPADRead every frame) reports
+// channel 0 connecting / disconnecting as the keyboard/controllers start or stop acting as a Pro Controller.
+static uint32_t g_connect_cb[4];
+static int g_reported[4];  // 0 unknown, 1 connected, -1 disconnected
+HLE(padscore, KPADSetConnectCallback) {
+    uint32_t chan = arg(c, 0), fn = arg(c, 1), prev = 0;
+    if (chan < 4) { prev = g_connect_cb[chan]; g_connect_cb[chan] = fn; g_reported[chan] = 0; }
+    LOG("[pad] KPADSetConnectCallback(%u, %08X)", chan, fn);
+    ret(c, prev);
+}
+void pad_connect_poll(Cpu* c) {
+    uint32_t fn = g_connect_cb[0];
+    if (!fn) return;
+    int now = connected(0) ? 1 : -1;
+    if (now == g_reported[0]) return;
+    if (g_reported[0] == 0 && now < 0) { g_reported[0] = now; return; }  // nothing to report at start
+    g_reported[0] = now;
+    LOG("[pad] connect callback: channel 0 %s", now > 0 ? "connected" : "disconnected");
+    guest_call(c, fn, {0u, (uint32_t)(now > 0 ? kWpadErrNone : kWpadErrNoController)});
+}
 HLE(padscore, KPADGetMplsWorkSize) { ret(c, 0x5FE0); }
 HLE(padscore, KPADSetMplsWorkarea) {}
 HLE(padscore, WPADEnableURCC) {}

@@ -84,6 +84,7 @@ HLE(proc_ui, ProcUIProcessMessages) { ret(c, 0); }  // PROCUI_STATUS_IN_FOREGROU
 HLE(vpad, VPADSetButtonProcMode) {}
 HLE(vpad, VPADEnableGyroZeroPlay) {}
 HLE(vpad, VPADSetGyroZeroPlayParam) {}
+void pad_connect_poll(Cpu* c);  // padscore.cpp
 HLE(vpad, VPADRead) {
     // (chan, VPADStatus* buf, count, int32* error) -> samples written
     uint32_t chan = arg(c, 0), st = arg(c, 1), count = arg(c, 2), err = arg(c, 3);
@@ -106,10 +107,15 @@ HLE(vpad, VPADRead) {
         ret(c, 0);
         return;
     }
+    pad_connect_poll(c);  // a Pro Controller connecting or leaving (padscore.cpp)
     static uint32_t last_hold = 0;
     const bool repeat = false;  // (frame interpolation repeated samples; TP HD runs at 30 fps)
     input::PadState p = crashrec::read(0);  // live input, recorded/replayed by crash recovery
-    if (input::pro_controller()) {  // GamePad on the table: screen and touch only
+    // Pro Controller mode keeps feeding the GamePad too (TPHD_PRO_GAMEPAD_IDLE=1 restores the idle GamePad): TP HD
+    // boots and runs its menus on the GamePad and only polls the Pro Controller after it is chosen in its own
+    // Controller Selection, so an idle GamePad left the game with no input at all until then.
+    static const bool idle_gamepad = getenv("TPHD_PRO_GAMEPAD_IDLE") && atoi(getenv("TPHD_PRO_GAMEPAD_IDLE"));
+    if (input::pro_controller() && idle_gamepad) {  // GamePad on the table: screen and touch only
         p.buttons = 0;
         p.lx = p.ly = p.rx = p.ry = 0;
     } else if (!repeat) {
